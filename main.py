@@ -29,7 +29,7 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\\Users\\davfa\\AppData\\Local\\Prog
 
 botToken = "MTA4NDQ1NzIzMDMzOTk0ODU4NQ.GAdGWr.2yYpdECuGb3JIfZlMpQOKD9WsvhtW2kbTKkMy8"
 openai.api_key = "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"
-
+ 
 guild_id = 1082007340473127102
 category_id = 1086317967358312530
 
