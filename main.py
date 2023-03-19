@@ -207,7 +207,7 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
     if type == "welcome":
         if role == "support":
             if color == None: color=0x43b581
-            embed = discord.Embed(title='Hello!', description=message, color = color)
+            embed = discord.Embed(title='**A smart conversation has been created!**', description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI', icon_url=openai_logo)
             channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
             channel = await client.fetch_channel(channel_id)
@@ -258,7 +258,7 @@ async def CreateConversation(username, user_id):
     col_conversations.insert_one({"user_name": str(username), "user_id": user_id, "guild_id": guild_id, "category_id": category_id, "topic": user_id, "channel_id": await find_channel_with_topic(user_id), "onGoing": True, "AISupport": True}) # insert to database
     col_chats.insert_one({"user_id" : user_id, "stage" : 1})
 
-    await AddMessage(user_id, type="welcome", message='**A smart conversation has been created!** \n\n**Hello there!** \nPlease ask me any question related to RestoreCord such as posting an error messages or screenshots of the issues you are experience! \n I\'ll try my best to solve them as fast as possible.\n\n**If you want to talk a human then click the "Talk to Humans" button!**')
+    await AddMessage(user_id, type="welcome", message='\n**Hello there!** \nPlease ask me any question related to RestoreCord such as posting an error messages or screenshots of the issues you are experience! \n I\'ll try my best to solve them as fast as possible.\n\n**If you want to talk a human then click the "Talk to Humans" button!**')
 
 async def DeleteConversation(user_id):
     print("[?] Deleting Conversation of:", user_id)
@@ -297,9 +297,7 @@ class welcome(discord.ui.View):
         user_id = interaction.user.id
         if(col_conversations.find_one({"user_id" : user_id})):
             channel = await find_channel_with_topic(user_id)
-            print("[DEBUG] channel_1", channel)
             channel = await client.fetch_channel(channel)
-            print("[DEBUG] channel_2", channel)
             embed = discord.Embed(title='Humans have been invited to this conversation!', description="The Support Team will have a look and will come back to you as soon as possible!", color=0x9cdcfe)
             embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
 
