@@ -14,6 +14,17 @@ import pytesseract
 import random
 from PIL import Image
 import requests
+import nltk
+from nltk.corpus import words
+from spellchecker import SpellChecker
+spell = SpellChecker()
+
+nltk.download('words')
+word_list = words.words()
+additional_words = ['redirecturi', 'oauth2', 'oauth']
+word_list.extend(additional_words)
+
+
 pytesseract.pytesseract.tesseract_cmd = r'C:\\Users\\davfa\\AppData\\Local\\Programs\\Tesseract-OCR\\tesseract.exe'
 
 botToken = "MTA4NDQ1NzIzMDMzOTk0ODU4NQ.GAdGWr.2yYpdECuGb3JIfZlMpQOKD9WsvhtW2kbTKkMy8"
@@ -49,7 +60,28 @@ async def on_message(message):
     attachment_url = None
     image_phrase = []
     
-    if isinstance(message.channel, discord.DMChannel) and message.author != client.user: # The bot received a DM from a user other than itself
+    if message.content.startswith('!close'):
+        if isinstance(message.channel, discord.DMChannel):
+            if(col_conversations.find_one({"user_id" : user_id})):
+                await DeleteConversation(user_id)
+                embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
+            else: 
+                embed = discord.Embed(title='Conversation already closed!', description="Please start a new conversation by chatting with me!", color=0xf04747)
+
+            embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
+            await message.channel.send(embed=embed)
+
+        else:
+            doc = col_conversations.find_one({"channel_id" : message.channel.id})
+            if(doc["channel_id"]):
+                await DeleteConversation(doc["user_id"])
+                embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
+
+            embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
+            await user_nametag.send(embed=embed)
+            
+    
+    elif isinstance(message.channel, discord.DMChannel) and message.author != client.user: # The bot received a DM from a user other than itself
         
         aaa = col_conversations.count_documents({"user_id" : user_id})
         print("[?] Conversation counter:", aaa)
@@ -72,19 +104,20 @@ async def on_message(message):
                 if solution:
                     await AddMessage(user_id, message =  openaiChatCompletion(solution, str(message.author.name), user_id))
 
-    if isinstance(message.channel, discord.TextChannel) and message.guild.id == guild_id and message.channel.category_id == category_id:
+    elif isinstance(message.channel, discord.TextChannel) and message.guild.id == guild_id and message.channel.category_id == category_id:
         user_id = col_conversations.find_one({"channel_id" : message.channel.id})["user_id"]
         if message.attachments:
                 attachment=message.attachments[0]
                 attachment_url=attachment.url
-        await AddMessage(user_id, message_content, role = "staff", attachment= attachment_url)
+        await AddMessage( message.author.id, message_content, role = "staff", attachment= attachment_url, channel_id= message.channel.id)
         if not message.attachments:
             await message.delete()
 
 def findSolution(phrase, image_phrase = []):
     doc_count = {}
-    phrase = phrase.lower().translate(str.maketrans('', '', string.punctuation)).split()
-    phrase = phrase + image_phrase
+    phrase = phrase.lower().translate(str.maketrans('', '', string.punctuation)).split() # split words from message
+    phrase = phrase + image_phrase # Combine words from image and message
+    phrase = [word for word in phrase if word in word_list] # check if the word is in the english dictionairy
 
     for word in phrase:
         matches = col_dataset.count_documents({'keyword': {'$regex': f'.*{word}.*'}})
@@ -100,24 +133,26 @@ def findSolution(phrase, image_phrase = []):
     else:
         solutionID = max(doc_count, key=doc_count.get)
         solutionPhrase = col_dataset.find_one({"_id": ObjectId(solutionID)})["solution"]
-
+        
     return solutionPhrase
 
 
-async def AddMessage(user_id, message, role = "support", type = "message", color = 0x9cdcfe, username = None, attachment = None): # Send a message to booth user and channel
-
+async def AddMessage(user_id, message, role = "support", type = "message", color = None, username = None, attachment = None, channel_id = None): # Send a message to booth user and channel
     print(f"[?] AddMessage({user_id}, {message}, {role})")
-    channel = await find_channel_with_topic(user_id)
-    channel = await client.fetch_channel(channel)
+    openai_logo = "https://cdn.discordapp.com/attachments/1084460022060298240/1086807072777179266/unnamed.jpg"
     sendUser = False
     sendChannel = False
     embed = None
     user = await client.fetch_user(user_id)
-    openai_logo = "https://cdn.discordapp.com/attachments/1084460022060298240/1086807072777179266/unnamed.jpg"
+    avatar = user.avatar
+    if avatar == None: avatar = "https://cdn.discordapp.com/embed/avatars/1.png" 
+    
+    
 
     if type == "message":
         if role == "support":
             if color == None: color=0x5865f2
+            channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
             embed = discord.Embed(description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI',)
             embed.set_author(name="Smart Assistant", icon_url= "https://cdn.restorecord.com/logo.png")
@@ -125,10 +160,13 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             sendUser = True; sendChannel = True
 
         elif role == "user":
+            channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
+            user = await client.fetch_user(user_id)
             if color == None: color=0xf1c40f
             sendChannel = True
 
         elif role == "staff":
+            user = await client.fetch_user(col_conversations.find_one({"channel_id": channel_id})["user_id"])
             if color == None: color=0x2ecc70
             sendUser = True; sendChannel = True
 
@@ -137,8 +175,11 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             if color == None: color=0x43b581
             embed = discord.Embed(title='Hello!', description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI', icon_url=openai_logo)
+            channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
+            channel = await client.fetch_channel(channel_id)
             await channel.send(embed=embed)
             await user.send(embed=embed, view=welcome())
+            return
 
     if type == "success": ## with buttons
         if role == "support":
@@ -146,10 +187,12 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             embed = discord.Embed(title='Smart Assistant', description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI', icon_url=openai_logo)
             sendUser = True; sendChannel = True
+    
+    channel = await client.fetch_channel(channel_id)
 
     if embed == None:
         embed = discord.Embed(description=message, color = color)
-        embed.set_author(name=user.name, icon_url=user.avatar)
+        embed.set_author(name=user.name, icon_url=avatar)
     if attachment != None: embed.set_image(url=attachment)
 
     if sendUser: await user.send(embed=embed)
@@ -185,8 +228,9 @@ async def CreateConversation(username, user_id):
     await AddMessage(user_id, type="welcome", message='**A smart conversation has been created!** \n\n**Hello there!** \nPlease ask me any question related to RestoreCord such as posting an error messages or screenshots of the issues you are experience! \n I\'ll try my best to solve them as fast as possible.\n\n**If you want to talk a human then click the "Talk to Humans" button!**')
 
 async def DeleteConversation(user_id):
-    doc = col_conversations.find_one({"user_id" : user_id})
     print("[?] Deleting Conversation of:", user_id)
+    doc = col_conversations.find_one({"user_id" : user_id})
+
     col_conversations.delete_one({"user_id" : user_id})
     col_chats.delete_one({"user_id" : user_id})
     guild = client.get_guild(guild_id)
@@ -220,8 +264,9 @@ class welcome(discord.ui.View):
         user_id = interaction.user.id
         if(col_conversations.find_one({"user_id" : user_id})):
             channel = await find_channel_with_topic(user_id)
+            print("[DEBUG] channel_1", channel)
             channel = await client.fetch_channel(channel)
-
+            print("[DEBUG] channel_2", channel)
             embed = discord.Embed(title='Humans have been invited to this conversation!', description="The Support Team will have a look and will come back to you as soon as possible!", color=0x9cdcfe)
             embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
 
@@ -239,15 +284,16 @@ class welcome(discord.ui.View):
 
     @discord.ui.button(label="Close Conversation!", style=discord.ButtonStyle.danger, emoji="⛔", custom_id="close_conversation") 
     async def button_callback3(self, button, interaction):
-        embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
+        if(col_conversations.find_one({"user_id" : interaction.user.id})):
+            embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
+            await DeleteConversation(user_id = interaction.user.id)    
+        else:
+            embed = discord.Embed(title='Conversation already closed!', description="Please start a new conversation by chatting with me!", color=0xf04747)
+        
         embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
         await interaction.response.send_message(embed=embed)
-
         button.disabled = True
-        await interaction.message.edit(view=self)
-
-        await DeleteConversation(user_id = interaction.user.id)
-        
+        await interaction.message.edit(view=self)  
 
 async def find_channel_with_topic(topic_content):
     await client.wait_until_ready()
