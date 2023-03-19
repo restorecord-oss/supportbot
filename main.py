@@ -45,7 +45,7 @@ client = commands.Bot(command_prefix='!', intents=discord.Intents.all())
 @client.event
 async def on_ready():
     print('Logged in as {0.user}'.format(client))
-    await client.change_presence(activity=discord.Game(name="24/7 Support!"))
+    await client.change_presence(activity=discord.Game(name="[BETA] 24/7 Support!"))
     client.add_view(welcome())
 
 @client.event
@@ -81,8 +81,38 @@ async def on_message(message):
             user = await client.fetch_user(doc["user_id"])
             await user.send(embed=embed)
             
-    
-    elif isinstance(message.channel, discord.DMChannel) and message.author != client.user: # The bot received a DM from a user other than itself
+    elif message.content.startswith("!toggle"):
+        doc= None
+        if isinstance(message.channel, discord.DMChannel): #DMS
+            user = await client.fetch_user(user_id)
+            if( col_conversations.count_documents({"user_id":user_id}) == 0):
+                embed = discord.Embed(title='Conversation already closed!', description="Please start a new conversation by chatting with me!", color=0xf04747)   
+            else:
+                doc = col_conversations.find_one({"user_id":user_id})
+
+                if doc["AISupport"]:
+                    col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": False } })
+                    embed = discord.Embed(title='AI Support has been disabled!', description="The admins have disabled AI support! This usually means that they are about to contact you.", color=0xf04747)
+                else:
+                    col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": True } })
+                    embed = discord.Embed(title='AI Support has been enabled!', description="The admins have enabled AI support! Welcome back my friend!.", color=0x2ecc70)
+        else: #guild channel
+            doc = col_conversations.find_one({"channel_id":message.channel.id})
+            user = await client.fetch_user(doc["user_id"])
+
+            if doc["AISupport"]:
+                col_conversations.update_one({ "channel_id": message.channel.id }, { "$set": { "AISupport": False } })
+                embed = discord.Embed(title='AI Support has been disabled!', description="The admins have disabled AI support! This usually means that they are about to contact you.", color=0xf04747)
+            else:
+                col_conversations.update_one({ "channel_id": message.channel.id }, { "$set": { "AISupport": True } })
+                embed = discord.Embed(title='AI Support has been enabled!', description="The admins have enabled AI support! Welcome back my friend!.", color=0x2ecc70)
+        
+        await user.send(embed=embed)
+        if doc:
+            channel = await client.fetch_channel(doc["channel_id"])
+            await channel.send(embed=embed)
+
+    elif isinstance(message.channel, discord.DMChannel) and message.author != client.user and not message.content.startswith("!"): # The bot received a DM from a user other than itself
         
         aaa = col_conversations.count_documents({"user_id" : user_id})
         print("[?] Conversation counter:", aaa)
@@ -137,7 +167,6 @@ def findSolution(phrase, image_phrase = []):
         
     return solutionPhrase
 
-
 async def AddMessage(user_id, message, role = "support", type = "message", color = None, username = None, attachment = None, channel_id = None): # Send a message to booth user and channel
     print(f"[?] AddMessage({user_id}, {message}, {role})")
     openai_logo = "https://cdn.discordapp.com/attachments/1084460022060298240/1086807072777179266/unnamed.jpg"
@@ -156,7 +185,7 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
             embed = discord.Embed(description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI',)
-            embed.set_author(name="Smart Assistant", icon_url= "https://cdn.restorecord.com/logo.png")
+            embed.set_author(name="Smart Assistant [BETA]", icon_url= "https://cdn.restorecord.com/logo.png")
             embed.set_footer(text='Partially powered by OpenAI', icon_url=openai_logo)
             sendUser = True; sendChannel = True
 
@@ -170,6 +199,10 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             user = await client.fetch_user(col_conversations.find_one({"channel_id": channel_id})["user_id"])
             if color == None: color=0x2ecc70
             sendUser = True; sendChannel = True
+
+        elif role == "private":
+            if color == None: color=0xeb459e
+            sendChannel = True
 
     if type == "welcome":
         if role == "support":
@@ -185,7 +218,7 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
     if type == "success": ## with buttons
         if role == "support":
             if color == None: color = 0x43b581
-            embed = discord.Embed(title='Smart Assistant', description=message, color = color)
+            embed = discord.Embed(title='Smart Assistant [BETA]', description=message, color = color)
             embed.set_footer(text='Partially powered by OpenAI', icon_url=openai_logo)
             sendUser = True; sendChannel = True
     
@@ -211,7 +244,6 @@ async def Situation(situation, user_id): # Situations with a set script such as 
 
     if situation == "issueResolved":
         print("[?] Situation: ", situation)
-
 
 async def CreateConversation(username, user_id):
     print(f"[?] CreateConversation({username}, {user_id})" )
