@@ -78,7 +78,8 @@ async def on_message(message):
                 embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
 
             embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
-            await user_nametag.send(embed=embed)
+            user = await client.fetch_user(doc["user_id"])
+            await user.send(embed=embed)
             
     
     elif isinstance(message.channel, discord.DMChannel) and message.author != client.user: # The bot received a DM from a user other than itself
