@@ -47,14 +47,13 @@ async def on_message(message):
     user_nametag = message.author
     message_content = message.content
     attachment_url = None
+    image_phrase = []
     
     if isinstance(message.channel, discord.DMChannel) and message.author != client.user: # The bot received a DM from a user other than itself
         
         aaa = col_conversations.count_documents({"user_id" : user_id})
         print("[?] Conversation counter:", aaa)
         print(f'[?] Received DM from {user_nametag}: {message_content}')
-
-        #await AddMessage(user_id, message_content, role = "user")
         
         if aaa < 1:
             await CreateConversation(user_name, user_id)
@@ -68,7 +67,8 @@ async def on_message(message):
             await message.add_reaction('✅')
 
             if(col_conversations.find_one({"user_id": user_id}))["AISupport"]:
-                solution = findSolution(message_content, image_phrase)
+                async with message.channel.typing():
+                    solution = findSolution(message_content, image_phrase)
                 if solution:
                     await AddMessage(user_id, message =  openaiChatCompletion(solution, str(message.author.name), user_id))
 
@@ -81,7 +81,7 @@ async def on_message(message):
         if not message.attachments:
             await message.delete()
 
-def findSolution(phrase, image_phrase = None):
+def findSolution(phrase, image_phrase = []):
     doc_count = {}
     phrase = phrase.lower().translate(str.maketrans('', '', string.punctuation)).split()
     phrase = phrase + image_phrase
@@ -186,7 +186,7 @@ async def CreateConversation(username, user_id):
 
 async def DeleteConversation(user_id):
     doc = col_conversations.find_one({"user_id" : user_id})
-    print("[?] Deleting Conversation of: ", user_id)
+    print("[?] Deleting Conversation of:", user_id)
     col_conversations.delete_one({"user_id" : user_id})
     col_chats.delete_one({"user_id" : user_id})
     guild = client.get_guild(guild_id)
@@ -198,7 +198,7 @@ def openaiChatCompletion(query, username, userid):
         model="gpt-3.5-turbo",
         max_tokens=150,
         messages=[
-        {"role": "system", "content": f'You are a highly intelligent support bot. Only allowed write very short and easy to understand solutions. Rewrite the text given to you in a convincing way. You may use Discord Markdown to format your answers'},
+        {"role": "system", "content": f'You are a intelligent personal assistant. You are only allowed to write short and easy to understand solutions. Rewrite the text given to you in a prmoising way. You may use Discord Markdown to format your answers.'},
         {"role": "assistant", "content": query},
         ]
     )
@@ -226,7 +226,7 @@ class welcome(discord.ui.View):
             embed.set_footer(text='Partially powered by OpenAI', icon_url='https://cdn.restorecord.com/logo.png')
 
             doc = col_conversations.find_one({"user_id" : user_id})
-            await channel.send(f"‎\n\n**|   <@&1082054289951825930> ** \n\n‎")
+            await channel.send(f"‎\n\n**|   <@&1082054289951825930> User is requesting help!**\n\n‎")
 
         else:
             embed = discord.Embed(title='Conversation already closed!', description="Please start a new conversation by chatting with me!", color=0xf04747)
