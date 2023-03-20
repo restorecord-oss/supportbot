@@ -112,6 +112,8 @@ async def on_message(message):
         else:
 
             
+            await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
+            
             if(col_conversations.find_one({"user_id": user_id}))["AISupport"]:
                 if message.attachments:
                     await message.add_reaction('🕐')
@@ -120,9 +122,8 @@ async def on_message(message):
                     image_phrase = await OCR(attachment_url)
                     print(client)
                     await message.remove_reaction('🕐', client.user)
-
                 await message.add_reaction('👀')
-                await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
+                
                 async with message.channel.typing():
                     solution = await findSolution(message_content, image_phrase)
                     if solution:
@@ -183,12 +184,12 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
 
         elif role == "user":
             channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
-            user = await client.fetch_user(user_id)
             if color == None: color=0xf1c40f
             sendChannel = True
 
         elif role == "staff":
             if color == None: color=0x2ecc70
+            user_id = col_conversations.find_one({"channel_id": channel_id})["user_id"]
             sendUser = True; sendChannel = True
 
         elif role == "private":
@@ -223,9 +224,9 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
     if embed == None:
         embed = discord.Embed(description=message, color = color)
         embed.set_author(name=user.name, icon_url=avatar)
-    if attachment != None: embed.set_image(url=attachment)
+    if attachment: embed.set_image(url=attachment)
 
-    if sendUser: await user.send(embed=embed)
+    if sendUser: user = await client.fetch_user(user_id); await user.send(embed=embed)
     if sendChannel: await channel.send(embed=embed)
 
 async def Situation(situation, user_id): # Situations with a set script such as "paying with paypal" ,"talking to staff" or "issue has been solved"
@@ -342,10 +343,10 @@ async def ToggleAssistant(user_id):
 
     if doc["AISupport"]:
         col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": False } })
-        title='AI Support has been disabled!'; description="Smart Assistant has been disabled, i will no longer read your messages and suggest solutions."; color=0xf04747
+        title='Smart Assistant has been disabled!'; description="Smart Assistant has been disabled, i will no longer read your messages and suggest solutions."; color=0xf04747
     else:
         col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": True } })
-        title='AI Support has been enabled!'; description="Smart ASsistant has been re-enabled, i will understand your messages and try to solve them."; color=0x2ecc70
+        title='Smart Assistant has been enabled!'; description="Smart Assistant has been enabled, i will read and understand your messages and try to solve them."; color=0x2ecc70
     await AddMessage(user_id, message=description, color=color, title=title, role="custom")
 
 async def find_channel_with_topic(topic_content):
