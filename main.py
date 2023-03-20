@@ -110,22 +110,23 @@ async def on_message(message):
         if aaa < 1:
             await CreateConversation(user_name, user_id)
         else:
-            if message.attachments:
-                await message.add_reaction('🕐')
-                attachment=message.attachments[0]
-                attachment_url=attachment.url
-                image_phrase = await OCR(attachment_url)
-                print(client)
-                await message.remove_reaction('🕐', client.user)
 
-            await message.add_reaction('✅')
-            await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
             
             if(col_conversations.find_one({"user_id": user_id}))["AISupport"]:
+                if message.attachments:
+                    await message.add_reaction('🕐')
+                    attachment=message.attachments[0]
+                    attachment_url=attachment.url
+                    image_phrase = await OCR(attachment_url)
+                    print(client)
+                    await message.remove_reaction('🕐', client.user)
+
+                await message.add_reaction('👀')
+                await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
                 async with message.channel.typing():
                     solution = await findSolution(message_content, image_phrase)
-                if solution:
-                    await AddMessage(user_id, message =  await openaiChatCompletion(solution, str(message.author.name), user_id))
+                    if solution:
+                        await AddMessage(user_id, message =  await openaiChatCompletion(solution, str(message.author.name), user_id))
 
     elif isinstance(message.channel, discord.TextChannel) and message.guild.id == guild_id and message.channel.category_id == category_id:
         user_id = col_conversations.find_one({"channel_id" : message.channel.id})["user_id"]
