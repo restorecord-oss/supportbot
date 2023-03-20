@@ -10,7 +10,7 @@ import re
 import string
 from bson.objectid import ObjectId
 import time
-import pytesseract
+import easyocr
 import random
 from PIL import Image
 import requests
@@ -24,8 +24,7 @@ word_list = words.words()
 additional_words = ['redirecturi', 'oauth2', 'oauth']
 word_list.extend(additional_words)
 
-
-#pytesseract.pytesseract.tesseract_cmd = r'C:\\Users\\davfa\\AppData\\Local\\Programs\\Tesseract-OCR\\tesseract.exe'
+reader = easyocr.Reader(['en'], gpu=False) # this needs to run only once to load the model into memory
 
 botToken = "MTA4NDQ1NzIzMDMzOTk0ODU4NQ.GAdGWr.2yYpdECuGb3JIfZlMpQOKD9WsvhtW2kbTKkMy8"
 openai.api_key = "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"
@@ -33,14 +32,14 @@ openai.api_key = "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"
 guild_id = 1082007340473127102
 category_id = 1086317967358312530
 
-mongoClient = pymongo.MongoClient("mongodb://localhost:27017")
+mongoClient = pymongo.MongoClient("mongodb://192.168.178.144:27017/")
 mydb = mongoClient["RestoreCordSupport"]
 col_Messages = mydb["Messages"]
 col_dataset = mydb["Dataset"]
 col_conversations = mydb["Conversations"]
 col_chats = mydb["Chats"]
 
-client = commands.Bot(command_prefix='!', intents=discord.Intents.all())
+client = commands.Bot(intents=discord.Intents.all())
 
 @client.event
 async def on_ready():
@@ -84,29 +83,19 @@ async def on_message(message):
     elif message.content.startswith("!toggle"):
         doc= None
         if isinstance(message.channel, discord.DMChannel): #DMS
-            user = await client.fetch_user(user_id)
-            if( col_conversations.count_documents({"user_id":user_id}) == 0):
-                embed = discord.Embed(title='Conversation already closed!', description="Please start a new conversation by chatting with me!", color=0xf04747)   
-            else:
-                doc = col_conversations.find_one({"user_id":user_id})
-
-                if doc["AISupport"]:
-                    col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": False } })
-                    embed = discord.Embed(title='AI Support has been disabled!', description="The admins have disabled AI support! This usually means that they are about to contact you.", color=0xf04747)
-                else:
-                    col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": True } })
-                    embed = discord.Embed(title='AI Support has been enabled!', description="The admins have enabled AI support! Welcome back my friend!.", color=0x2ecc70)
+            ToggleAssistant(message.user.id)
         else: #guild channel
             doc = col_conversations.find_one({"channel_id":message.channel.id})
             user = await client.fetch_user(doc["user_id"])
 
             if doc["AISupport"]:
                 col_conversations.update_one({ "channel_id": message.channel.id }, { "$set": { "AISupport": False } })
-                embed = discord.Embed(title='AI Support has been disabled!', description="The admins have disabled AI support! This usually means that they are about to contact you.", color=0xf04747)
+                title='AI Support has been disabled!'; description="The admins have disabled AI support! This usually means that they are about to contact you."; color=0xf04747
             else:
                 col_conversations.update_one({ "channel_id": message.channel.id }, { "$set": { "AISupport": True } })
-                embed = discord.Embed(title='AI Support has been enabled!', description="The admins have enabled AI support! Welcome back my friend!.", color=0x2ecc70)
+                title='AI Support has been enabled!'; description="The admins have enabled AI support! Welcome back my friend!."; color=0x2ecc70
         
+        embed = discord.Embed(title=title, description=description, color=color)
         await user.send(embed=embed)
         if doc:
             channel = await client.fetch_channel(doc["channel_id"])
@@ -122,18 +111,21 @@ async def on_message(message):
             await CreateConversation(user_name, user_id)
         else:
             if message.attachments:
+                await message.add_reaction('🕐')
                 attachment=message.attachments[0]
                 attachment_url=attachment.url
-                image_phrase = OCR(attachment_url)
+                image_phrase = await OCR(attachment_url)
+                print(client)
+                await message.remove_reaction('🕐', client.user)
 
-            await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
             await message.add_reaction('✅')
-
+            await AddMessage(user_id, message_content, role = "user", attachment=attachment_url)
+            
             if(col_conversations.find_one({"user_id": user_id}))["AISupport"]:
                 async with message.channel.typing():
-                    solution = findSolution(message_content, image_phrase)
+                    solution = await findSolution(message_content, image_phrase)
                 if solution:
-                    await AddMessage(user_id, message =  openaiChatCompletion(solution, str(message.author.name), user_id))
+                    await AddMessage(user_id, message =  await openaiChatCompletion(solution, str(message.author.name), user_id))
 
     elif isinstance(message.channel, discord.TextChannel) and message.guild.id == guild_id and message.channel.category_id == category_id:
         user_id = col_conversations.find_one({"channel_id" : message.channel.id})["user_id"]
@@ -144,11 +136,12 @@ async def on_message(message):
         if not message.attachments:
             await message.delete()
 
-def findSolution(phrase, image_phrase = []):
+async def findSolution(phrase, image_phrase = []):
     doc_count = {}
     phrase = phrase.lower().translate(str.maketrans('', '', string.punctuation)).split() # split words from message
     phrase = phrase + image_phrase # Combine words from image and message
-    phrase = [word for word in phrase if word in word_list] # check if the word is in the english dictionairy
+    #phrase = [word for word in phrase if word in word_list] # check if the word is in the english dictionairy
+    print ("Phrase after clearing: ", phrase)
 
     for word in phrase:
         matches = col_dataset.count_documents({'keyword': {'$regex': f'.*{word}.*'}})
@@ -167,7 +160,7 @@ def findSolution(phrase, image_phrase = []):
         
     return solutionPhrase
 
-async def AddMessage(user_id, message, role = "support", type = "message", color = None, username = None, attachment = None, channel_id = None): # Send a message to booth user and channel
+async def AddMessage(user_id, message, role = "support", type = "message", color = None, username = None, attachment = None, channel_id = None, title= None) : # Send a message to booth user and channel
     print(f"[?] AddMessage({user_id}, {message}, {role})")
     openai_logo = "https://cdn.discordapp.com/attachments/1084460022060298240/1086807072777179266/unnamed.jpg"
     sendUser = False
@@ -176,8 +169,6 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
     user = await client.fetch_user(user_id)
     avatar = user.avatar
     if avatar == None: avatar = "https://cdn.discordapp.com/embed/avatars/1.png" 
-    
-    
 
     if type == "message":
         if role == "support":
@@ -196,13 +187,17 @@ async def AddMessage(user_id, message, role = "support", type = "message", color
             sendChannel = True
 
         elif role == "staff":
-            user = await client.fetch_user(col_conversations.find_one({"channel_id": channel_id})["user_id"])
             if color == None: color=0x2ecc70
             sendUser = True; sendChannel = True
 
         elif role == "private":
             if color == None: color=0xeb459e
             sendChannel = True
+
+        elif role == "custom":
+            channel_id = col_conversations.find_one({"user_id": user_id})["channel_id"]
+            embed = discord.Embed(title=f'**{title}**', description=message, color = color)
+            sendUser = True; sendChannel = True
 
     if type == "welcome":
         if role == "support":
@@ -242,9 +237,12 @@ async def Situation(situation, user_id): # Situations with a set script such as 
     if situation == "reportBug":
         print("[?] Situation: ", situation)
 
-    if situation == "issueResolved":
+    if situation == "botDisabled":
         print("[?] Situation: ", situation)
 
+    if situation == "issueResolved":
+        print("[?] Situation: ", situation)
+        
 async def CreateConversation(username, user_id):
     print(f"[?] CreateConversation({username}, {user_id})" )
     guild = client.get_guild(guild_id)
@@ -270,7 +268,8 @@ async def DeleteConversation(user_id):
     channel = guild.get_channel(doc["channel_id"])
     await channel.delete()
 
-def openaiChatCompletion(query, username, userid):
+async def openaiChatCompletion(query, username, userid):
+    print("[?] openaiChatCompletion: ", query)
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         max_tokens=150,
@@ -314,7 +313,7 @@ class welcome(discord.ui.View):
 
 
     @discord.ui.button(label="Close Conversation!", style=discord.ButtonStyle.danger, emoji="⛔", custom_id="close_conversation") 
-    async def button_callback3(self, button, interaction):
+    async def button_callback2(self, button, interaction):
         if(col_conversations.find_one({"user_id" : interaction.user.id})):
             embed = discord.Embed(title='Conversation has been closed!', description="If you are experiencing any issues or got any questions feel free to dm me again!", color=0xf04747)
             await DeleteConversation(user_id = interaction.user.id)    
@@ -325,6 +324,28 @@ class welcome(discord.ui.View):
         await interaction.response.send_message(embed=embed)
         button.disabled = True
         await interaction.message.edit(view=self)  
+    
+    @discord.ui.button(label="Toggle Smart Assistant!", style=discord.ButtonStyle.green, emoji="🤖", custom_id="toggle_assistant") 
+    async def button_callback3(self, button, interaction):
+        await ToggleAssistant(interaction.user.id)
+        await interaction.response.defer()
+
+
+async def ToggleAssistant(user_id):
+    print("[?] Toggling Smart Assistant for: ",user_id)
+    user = await client.fetch_user(user_id)
+    if( col_conversations.count_documents({"user_id":user_id}) == 0):
+        title = 'Conversation already closed!'; description= "Please start a new conversation by talking to me!"; color=0xf04747
+    else:
+        doc = col_conversations.find_one({"user_id":user_id})
+
+    if doc["AISupport"]:
+        col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": False } })
+        title='AI Support has been disabled!'; description="Smart Assistant has been disabled, i will no longer read your messages and suggest solutions."; color=0xf04747
+    else:
+        col_conversations.update_one({ "user_id": user_id}, { "$set": { "AISupport": True } })
+        title='AI Support has been enabled!'; description="Smart ASsistant has been re-enabled, i will understand your messages and try to solve them."; color=0x2ecc70
+    await AddMessage(user_id, message=description, color=color, title=title, role="custom")
 
 async def find_channel_with_topic(topic_content):
     await client.wait_until_ready()
@@ -336,22 +357,21 @@ async def find_channel_with_topic(topic_content):
             return channel.id
     return None
 
-def OCR(image_url):
+async def OCR(image_url):
     print ("[?] Reading text from image", image_url)
-    filename = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+    image = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(16))
     response = requests.get(image_url)
     image_phrase = None
 
-    with open('image.jpg', 'wb') as f:
+    with open(image, 'wb') as f:
         f.write(response.content)
 
-    img = Image.open('image.jpg')
-    text = pytesseract.image_to_string(img)
+    text = reader.readtext(image, detail = 0)
 
-    image_phrase = text.lower().translate(str.maketrans('', '', string.punctuation))
-    image_phrase = image_phrase.split()
+    image_phrase = ' '.join(text)
+    image_phrase = image_phrase.lower().translate(str.maketrans('', '', string.punctuation)).split()
 
-    os.remove('image.jpg')
+    os.remove(image)
 
     print(f"[?] Text from Image: {image_phrase}")
     return image_phrase
